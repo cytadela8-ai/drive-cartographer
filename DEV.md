@@ -7,14 +7,44 @@ before import. The worker imports artifacts into normalized PostgreSQL tables.
 The frontend uses scoped indexed queries for tree browsing and duplicate
 inspection.
 
-## Planned Modules
+## Modules
 
 - `scanner/src/scanner.rs`: scan orchestration.
 - `scanner/src/csv_schema.rs`: CSV header and row encoding.
 - `scanner/src/cache.rs`: SQLite hash cache.
+- `scanner/src/config.rs`: TOML scanner config loading.
+- `scanner/src/metadata.rs`: filesystem metadata normalization.
 - `web/src/server/importer.ts`: CSV validation and database import.
 - `web/src/server/explorer.ts`: directory, duplicate, and history queries.
 - `web/src/client/ExplorerView.tsx`: virtualized file explorer.
+
+## Scanner Memory Model
+
+The scanner uses two filesystem walks. The first walk counts files and apparent
+bytes for progress totals. The second walk hashes and writes each CSV row through
+a buffered writer. It does not retain the full file list or all CSV rows in
+memory.
+
+Hashing uses a fixed 64 KiB read buffer. The local SQLite cache stores file hash
+results keyed by source, root, absolute path, size, and modification timestamp.
+
+## Database
+
+Prisma 7 stores the database URL in `web/prisma.config.ts`, not in
+`schema.prisma`. The schema defines normalized tables for sources, roots,
+artifacts, import jobs, scans, scan roots, file hashes, and file locations.
+
+The initial explorer indexes are:
+
+- `FileLocation_scanId_rootId_parentRelativePath_idx`
+- `FileLocation_hashId_idx`
+- `FileLocation_rootId_relativePath_scanId_idx`
+- `FileLocation_scanId_rootId_relativePath_key`
+
+## Web Tests
+
+Database-backed Vitest files run sequentially because they share the local
+Postgres database and clean tables between tests.
 
 ## Performance Guardrails
 

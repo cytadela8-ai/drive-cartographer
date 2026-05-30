@@ -1,0 +1,6 @@
+source_name = "example-source"
+cache_path = "scanner/fixtures/example-cache.sqlite"
+
+[[roots]]
+label = "fixtures"
+path = "fixtures/scans"

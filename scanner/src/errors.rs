@@ -24,6 +24,13 @@ pub enum ScannerError {
     #[error("failed scanner cache operation: {0}")]
     Cache(#[from] rusqlite::Error),
 
+    #[error("failed to parse scanner config {path}: {source}")]
+    Config {
+        path: String,
+        #[source]
+        source: toml::de::Error,
+    },
+
     #[error("failed to format timestamp: {0}")]
     TimeFormat(#[from] time::error::Format),
 

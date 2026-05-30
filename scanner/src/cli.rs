@@ -15,7 +15,11 @@ pub enum Command {
         #[arg(long)]
         config: PathBuf,
         #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
         full_rehash: bool,
+        #[arg(long)]
+        upload: bool,
     },
     Upload {
         #[arg(long)]

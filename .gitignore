@@ -6,3 +6,4 @@ target/
 dist/
 coverage/
 web/src/generated/
+*.sqlite
