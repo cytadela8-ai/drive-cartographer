@@ -1,4 +1,10 @@
+pub mod cache;
 pub mod cli;
+pub mod config;
 pub mod csv_schema;
 pub mod errors;
+pub mod metadata;
 pub mod paths;
+pub mod progress;
+pub mod scanner;
+pub mod upload;
