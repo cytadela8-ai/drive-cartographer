@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &ScanOptions {
                     output_path: output,
                     full_rehash,
+                    show_progress: true,
                     upload,
                 },
             )?;

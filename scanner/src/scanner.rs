@@ -4,7 +4,7 @@ use crate::csv_schema::{CSV_HEADER, CsvFileRow};
 use crate::errors::ScannerError;
 use crate::metadata::{FileMetadata, MetadataCollector};
 use crate::paths::split_relative_path;
-use crate::progress::ScanProgress;
+use crate::progress::{ProgressReporter, ScanProgress, terminal_or_noop};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sha2::{Digest, Sha256};
 use std::fs::{File, remove_file};
@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 pub struct ScanOptions {
     pub output_path: PathBuf,
     pub full_rehash: bool,
+    pub show_progress: bool,
     pub upload: bool,
 }
 
@@ -34,11 +35,20 @@ pub fn run_scan(
     config: &ScannerConfig,
     options: &ScanOptions,
 ) -> Result<ScanSummary, ScannerError> {
+    let mut progress = terminal_or_noop(options.show_progress);
+    run_scan_with_progress(config, options, progress.as_mut())
+}
+
+pub fn run_scan_with_progress(
+    config: &ScannerConfig,
+    options: &ScanOptions,
+    progress_reporter: &mut dyn ProgressReporter,
+) -> Result<ScanSummary, ScannerError> {
     validate_roots(&config.roots)?;
 
     let excludes = Excludes::from_patterns(&config.exclude_patterns)?;
     let scan_started_at = timestamp_now()?;
-    let mut summary = enumerate_roots(&config.roots, &excludes)?;
+    let mut summary = enumerate_roots(&config.roots, &excludes, progress_reporter)?;
     let cache = HashCache::open(&config.cache_path)?;
     let metadata_collector = MetadataCollector::new()?;
     let partial_output_path = partial_output_path(&options.output_path);
@@ -58,6 +68,7 @@ pub fn run_scan(
         metadata_collector: &metadata_collector,
         writer: &mut writer,
         summary: &mut summary,
+        progress_reporter,
         scan_started_at,
         excludes: &excludes,
     };
@@ -67,14 +78,18 @@ pub fn run_scan(
     drop(writer);
 
     let scan_finished_at = timestamp_now()?;
+    progress_reporter.begin_finalization();
     finalize_csv_output(
         &partial_output_path,
         &options.output_path,
         &scan_finished_at,
     )?;
+    progress_reporter.finish_finalization();
 
     if options.upload {
+        progress_reporter.begin_upload();
         crate::upload::upload_artifact(&options.output_path, config.server_url.as_deref())?;
+        progress_reporter.finish_upload();
     }
 
     Ok(summary)
@@ -92,8 +107,13 @@ fn validate_roots(roots: &[RootConfig]) -> Result<(), ScannerError> {
     Ok(())
 }
 
-fn enumerate_roots(roots: &[RootConfig], excludes: &Excludes) -> Result<ScanSummary, ScannerError> {
+fn enumerate_roots(
+    roots: &[RootConfig],
+    excludes: &Excludes,
+    progress_reporter: &mut dyn ProgressReporter,
+) -> Result<ScanSummary, ScannerError> {
     let mut progress = ScanProgress::new();
+    progress_reporter.begin_enumeration();
 
     for root in roots {
         for entry in walk_entries(root, excludes) {
@@ -101,10 +121,12 @@ fn enumerate_roots(roots: &[RootConfig], excludes: &Excludes) -> Result<ScanSumm
             if entry.file_type().is_file() {
                 let size_bytes = entry.metadata()?.len();
                 progress.record_file(size_bytes);
+                progress_reporter.record_enumerated_file(size_bytes);
             }
         }
     }
 
+    progress_reporter.finish_enumeration(progress.files_seen(), progress.bytes_seen());
     Ok(ScanSummary {
         files_discovered: progress.files_seen(),
         bytes_discovered: progress.bytes_seen(),
@@ -119,15 +141,20 @@ struct ScanExecution<'a, W: std::io::Write> {
     metadata_collector: &'a MetadataCollector,
     writer: &'a mut csv::Writer<W>,
     summary: &'a mut ScanSummary,
+    progress_reporter: &'a mut dyn ProgressReporter,
     scan_started_at: String,
     excludes: &'a Excludes,
 }
 
 impl<W: std::io::Write> ScanExecution<'_, W> {
     fn process_roots(&mut self) -> Result<(), ScannerError> {
+        self.progress_reporter
+            .begin_processing(self.summary.files_discovered, self.summary.bytes_discovered);
         for root in &self.config.roots {
             self.process_root(root)?;
         }
+        self.progress_reporter
+            .finish_processing(self.summary.files_written, self.summary.cache_hits);
 
         Ok(())
     }
@@ -146,6 +173,7 @@ impl<W: std::io::Write> ScanExecution<'_, W> {
     fn process_file(&mut self, root: &RootConfig, path: &Path) -> Result<(), ScannerError> {
         let source_name = self.config.effective_source_name();
         let metadata = self.metadata_collector.collect(path)?;
+        let size_bytes = metadata.size_bytes;
         let absolute_path = path.to_string_lossy().to_string();
         let relative_path = relative_path(&root.path, path)?;
         let sha256 = hash_with_cache(
@@ -172,6 +200,7 @@ impl<W: std::io::Write> ScanExecution<'_, W> {
 
         self.writer.serialize(row)?;
         self.summary.files_written += 1;
+        self.progress_reporter.record_processed_file(size_bytes);
         Ok(())
     }
 }

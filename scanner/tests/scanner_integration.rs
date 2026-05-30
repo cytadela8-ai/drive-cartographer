@@ -3,7 +3,8 @@ use drive_cartographer_scanner::config::{RootConfig, ScannerConfig};
 use drive_cartographer_scanner::csv_schema::{CSV_HEADER, CsvFileRow, MinimalFileRowInput};
 use drive_cartographer_scanner::metadata::collect_metadata;
 use drive_cartographer_scanner::paths::split_relative_path;
-use drive_cartographer_scanner::scanner::{ScanOptions, run_scan};
+use drive_cartographer_scanner::progress::ProgressReporter;
+use drive_cartographer_scanner::scanner::{ScanOptions, run_scan, run_scan_with_progress};
 use drive_cartographer_scanner::upload::upload_artifact;
 use std::collections::HashMap;
 use std::fs;
@@ -78,6 +79,48 @@ fn metadata_uses_libmagic_for_mime_detection() {
     assert_eq!(metadata.mime_type, "text/plain");
 }
 
+#[cfg(unix)]
+#[test]
+fn metadata_records_unix_ownership_and_permission_details() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let path = temp.path().join("alpha.txt");
+    fs::write(&path, b"plain text\n").expect("write text file");
+
+    let metadata = collect_metadata(&path).expect("collect metadata");
+    let permissions: serde_json::Value =
+        serde_json::from_str(&metadata.ownership_permissions_json).expect("valid permissions");
+    let platform_identity: serde_json::Value =
+        serde_json::from_str(&metadata.metadata_json).expect("valid metadata");
+
+    assert_eq!(permissions["platform"], "unix");
+    assert!(permissions["owner"].is_number());
+    assert!(permissions["group"].is_number());
+    assert!(permissions["mode"].is_number());
+    assert!(permissions["mode_octal"].is_string());
+    assert_eq!(
+        platform_identity["platform_file_identity"]["platform"],
+        "unix"
+    );
+}
+
+#[test]
+fn metadata_extracts_normalized_exif_from_jpeg_files() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let path = temp.path().join("photo.jpg");
+    fs::write(&path, exif_jpeg()).expect("write jpeg");
+
+    let metadata = collect_metadata(&path).expect("collect metadata");
+    let exif: serde_json::Value =
+        serde_json::from_str(&metadata.exif_json).expect("valid exif json");
+
+    assert_eq!(exif["make"], "Acme Camera");
+    assert_eq!(exif["model"], "Model One");
+    assert_eq!(exif["date_time_original"], "2026:05:30 10:11:12");
+    assert_eq!(exif["orientation"], 1);
+    assert_eq!(exif["image_width"], 640);
+    assert_eq!(exif["image_height"], 480);
+}
+
 #[test]
 fn scan_streams_csv_rows_for_files_in_configured_root() {
     let temp = tempfile::tempdir().expect("create tempdir");
@@ -103,6 +146,7 @@ fn scan_streams_csv_rows_for_files_in_configured_root() {
         &ScanOptions {
             output_path: output.clone(),
             full_rehash: false,
+            show_progress: false,
             upload: false,
         },
     )
@@ -142,6 +186,7 @@ fn scan_applies_exclude_patterns_during_enumeration_and_processing() {
         &ScanOptions {
             output_path: output.clone(),
             full_rehash: false,
+            show_progress: false,
             upload: false,
         },
     )
@@ -180,6 +225,7 @@ fn scan_csv_rows_include_importable_scan_timestamps() {
         &ScanOptions {
             output_path: output.clone(),
             full_rehash: false,
+            show_progress: false,
             upload: false,
         },
     )
@@ -194,6 +240,57 @@ fn scan_csv_rows_include_importable_scan_timestamps() {
 
     assert_importable_timestamp(row.get("scan_started_at").expect("started timestamp"));
     assert_importable_timestamp(row.get("scan_finished_at").expect("finished timestamp"));
+}
+
+#[test]
+fn scan_reports_progress_phases_and_counts() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let root = temp.path().join("root");
+    fs::create_dir(&root).expect("create root");
+    fs::write(root.join("alpha.txt"), b"alpha").expect("write alpha");
+    fs::write(root.join("beta.txt"), b"beta").expect("write beta");
+
+    let output = temp.path().join("scan.csv");
+    let cache = temp.path().join("cache.sqlite");
+    let config = ScannerConfig {
+        source_name: Some("test-source".to_string()),
+        roots: vec![RootConfig {
+            label: "main".to_string(),
+            path: root,
+        }],
+        server_url: None,
+        cache_path: cache,
+        exclude_patterns: Vec::new(),
+    };
+    let mut progress = RecordingProgress::default();
+
+    run_scan_with_progress(
+        &config,
+        &ScanOptions {
+            output_path: output,
+            full_rehash: false,
+            show_progress: false,
+            upload: false,
+        },
+        &mut progress,
+    )
+    .expect("scan succeeds");
+
+    assert_eq!(
+        progress.events,
+        [
+            "begin:enumeration",
+            "enumerated:5",
+            "enumerated:4",
+            "finish:enumeration:2:9",
+            "begin:processing:2:9",
+            "processed:5",
+            "processed:4",
+            "finish:processing:2:0",
+            "begin:finalization",
+            "finish:finalization",
+        ]
+    );
 }
 
 #[test]
@@ -341,6 +438,94 @@ fn capture_http_request(stream: &mut std::net::TcpStream) -> Result<String, Stri
         .map_err(|error| error.to_string())?;
 
     Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
+fn exif_jpeg() -> Vec<u8> {
+    use exif::Tag;
+    use exif::experimental::Writer;
+    use std::io::Cursor;
+
+    let fields = [
+        ascii_field(Tag::Make, "Acme Camera"),
+        ascii_field(Tag::Model, "Model One"),
+        ascii_field(Tag::DateTimeOriginal, "2026:05:30 10:11:12"),
+        uint_field(Tag::Orientation, 1),
+        uint_field(Tag::PixelXDimension, 640),
+        uint_field(Tag::PixelYDimension, 480),
+    ];
+    let mut writer = Writer::new();
+    for field in &fields {
+        writer.push_field(field);
+    }
+    let mut tiff = Cursor::new(Vec::new());
+    writer.write(&mut tiff, false).expect("write exif tiff");
+
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(&tiff.into_inner());
+    let segment_length = u16::try_from(payload.len() + 2).expect("app1 payload fits");
+    let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+    jpeg.extend_from_slice(&segment_length.to_be_bytes());
+    jpeg.extend_from_slice(&payload);
+    jpeg.extend_from_slice(&[0xff, 0xd9]);
+    jpeg
+}
+
+fn ascii_field(tag: exif::Tag, value: &str) -> exif::Field {
+    exif::Field {
+        tag,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![value.as_bytes().to_vec()]),
+    }
+}
+
+fn uint_field(tag: exif::Tag, value: u16) -> exif::Field {
+    exif::Field {
+        tag,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Short(vec![value]),
+    }
+}
+
+#[derive(Default)]
+struct RecordingProgress {
+    events: Vec<String>,
+}
+
+impl ProgressReporter for RecordingProgress {
+    fn begin_enumeration(&mut self) {
+        self.events.push("begin:enumeration".to_string());
+    }
+
+    fn record_enumerated_file(&mut self, size_bytes: u64) {
+        self.events.push(format!("enumerated:{size_bytes}"));
+    }
+
+    fn finish_enumeration(&mut self, files: u64, bytes: u64) {
+        self.events
+            .push(format!("finish:enumeration:{files}:{bytes}"));
+    }
+
+    fn begin_processing(&mut self, files: u64, bytes: u64) {
+        self.events
+            .push(format!("begin:processing:{files}:{bytes}"));
+    }
+
+    fn record_processed_file(&mut self, size_bytes: u64) {
+        self.events.push(format!("processed:{size_bytes}"));
+    }
+
+    fn finish_processing(&mut self, files: u64, cache_hits: u64) {
+        self.events
+            .push(format!("finish:processing:{files}:{cache_hits}"));
+    }
+
+    fn begin_finalization(&mut self) {
+        self.events.push("begin:finalization".to_string());
+    }
+
+    fn finish_finalization(&mut self) {
+        self.events.push("finish:finalization".to_string());
+    }
 }
 
 fn header_end_index(bytes: &[u8]) -> Option<usize> {

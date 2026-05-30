@@ -66,6 +66,10 @@ Use `--upload` to submit the generated CSV to the configured server after a
 scan completes. The scanner sends the CSV as multipart field `artifact` to
 `/api/artifacts/upload`.
 
+The scanner displays terminal progress for enumeration, processing,
+finalization, and upload. It detects MIME types with libmagic and stores
+normalized EXIF JSON for common image fields when EXIF data is present.
+
 Run the API server:
 
 ```bash
@@ -94,6 +98,7 @@ cargo clippy --manifest-path scanner/Cargo.toml --all-targets -- -D warnings
 cd web
 DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run test
 bun run typecheck
+bun run security:scan
 ```
 
 Implementation details are tracked in `DEV.md`.

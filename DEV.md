@@ -15,6 +15,7 @@ inspection.
 - `scanner/src/cache.rs`: SQLite hash cache.
 - `scanner/src/config.rs`: TOML scanner config loading.
 - `scanner/src/metadata.rs`: filesystem metadata normalization.
+- `scanner/src/progress.rs`: scanner progress event API and terminal renderer.
 - `web/src/server/app.ts`: fetch-handler API routes.
 - `web/src/server/importer.ts`: CSV validation and database import.
 - `web/src/server/explorer.ts`: directory, duplicate, and history queries.
@@ -40,12 +41,26 @@ binding. The scanner creates one libmagic cookie per scan and reuses it for
 each file metadata lookup. Linux development environments need `libmagic-dev`
 installed so the scanner can link against libmagic.
 
+EXIF extraction uses `kamadak-exif` to parse common image containers. The CSV
+stores a normalized JSON object for common fields such as camera make/model,
+original capture time, orientation, and pixel dimensions. Files without EXIF
+data store `{}`.
+
+Ownership and permission metadata uses standard library fields. Unix and macOS
+store UID, GID, mode, octal mode, and readonly state. Windows stores readonly
+state and raw file attributes. Native ACL summaries still need verification on
+Windows/macOS hosts before adding platform-specific API bindings.
+
 `exclude_patterns` are glob patterns matched against each root-relative path.
 They are applied during both the enumeration pass and the processing pass, so
 excluded directories are not descended into.
 
 When `--upload` is enabled, `scanner/src/upload.rs` posts the generated CSV as
 multipart field `artifact` to `{server_url}/api/artifacts/upload`.
+
+Progress reporting is emitted through `scanner/src/progress.rs`. The CLI uses
+the terminal renderer for enumeration, processing, finalization, and upload.
+Tests inject a recording reporter through `run_scan_with_progress`.
 
 ## Database
 
@@ -97,6 +112,13 @@ Postgres database and clean tables between tests.
 `web/tests/server/smoke.test.ts` shells out to the Rust scanner, uploads the
 generated CSV through the server API, imports the queued job through the worker
 claim path, and verifies explorer duplicate queries against the imported data.
+
+## Dependency Security
+
+`web/bunfig.toml` configures Bun's package manager security scanner with
+`@socketsecurity/bun-security-scanner`. Run `bun run security:scan` from `web/`
+to scan the Bun lockfile. The scanner can run in free mode; set
+`SOCKET_API_KEY` to use Socket organization settings.
 
 ## Performance Guardrails
 
