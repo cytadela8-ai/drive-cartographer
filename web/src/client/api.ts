@@ -20,6 +20,17 @@ export type ScanOption = {
   label: string;
 };
 
+export type ImportJobSummary = {
+  id: string;
+  artifactId: string;
+  artifactFilename: string;
+  attempts: number;
+  status: string;
+  lastError: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
 export async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -58,5 +69,28 @@ export const explorerApi = {
       include_history: String(input.includeHistory),
     });
     return getJson<DirectoryChild[]>(`/api/hashes/${input.hashId}/locations?${params}`);
+  },
+};
+
+export const importsApi = {
+  loadImportJobs: () => getJson<ImportJobSummary[]>("/api/import-jobs"),
+  retryImportJob: async (jobId: string) => {
+    const response = await fetch(`/api/import-jobs/${jobId}/retry`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`retry import job failed with ${response.status}`);
+    }
+  },
+  uploadArtifact: async (file: File) => {
+    const formData = new FormData();
+    formData.set("artifact", file);
+    const response = await fetch("/api/artifacts/upload", {
+      body: formData,
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`artifact upload failed with ${response.status}`);
+    }
   },
 };

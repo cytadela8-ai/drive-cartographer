@@ -43,6 +43,19 @@ cargo run --manifest-path scanner/Cargo.toml -- \
   --output /tmp/drive-cartographer-example.csv
 ```
 
+Run the API server:
+
+```bash
+cd web
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
+ARTIFACT_ARCHIVE_DIR=./data/artifacts \
+bun run server
+```
+
+The API exposes CSV artifact upload, import job retry/listing, source/root/scan
+listing, explorer children, duplicate counts, and hash location endpoints under
+`/api`.
+
 Run checks:
 
 ```bash

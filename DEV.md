@@ -14,16 +14,18 @@ inspection.
 - `scanner/src/cache.rs`: SQLite hash cache.
 - `scanner/src/config.rs`: TOML scanner config loading.
 - `scanner/src/metadata.rs`: filesystem metadata normalization.
+- `web/src/server/app.ts`: fetch-handler API routes.
 - `web/src/server/importer.ts`: CSV validation and database import.
 - `web/src/server/explorer.ts`: directory, duplicate, and history queries.
+- `web/src/client/ImportsView.tsx`: CSV upload and import job actions.
 - `web/src/client/ExplorerView.tsx`: virtualized file explorer.
 
 ## Scanner Memory Model
 
 The scanner uses two filesystem walks. The first walk counts files and apparent
 bytes for progress totals. The second walk hashes and writes each CSV row through
-a buffered writer. It does not retain the full file list or all CSV rows in
-memory.
+a buffered writer. It finalizes scan completion timestamps through a second CSV
+file pass, so it does not retain the full file list or all CSV rows in memory.
 
 Hashing uses a fixed 64 KiB read buffer. The local SQLite cache stores file hash
 results keyed by source, root, absolute path, size, and modification timestamp.
@@ -41,6 +43,25 @@ The initial explorer indexes are:
 - `FileLocation_rootId_relativePath_scanId_idx`
 - `FileLocation_scanId_rootId_relativePath_key`
 
+## Web API
+
+`web/src/server/app.ts` exposes a framework-free `Request` to `Response`
+handler used by Bun and by server tests. The current routes are:
+
+- `POST /api/artifacts/upload`
+- `GET /api/import-jobs`
+- `POST /api/import-jobs/:id/retry`
+- `GET /api/sources`
+- `GET /api/sources/:id/roots`
+- `GET /api/roots/:id/scans`
+- `GET /api/explorer/children`
+- `POST /api/explorer/duplicate-counts`
+- `GET /api/hashes/:id/locations`
+
+Upload stores the original CSV artifact in `ARTIFACT_ARCHIVE_DIR` before
+creating a pending import job. Retry resets the failed job in place and returns
+the artifact to `SAVED` status.
+
 ## Web Tests
 
 Database-backed Vitest files run sequentially because they share the local
@@ -57,7 +78,8 @@ Run the guardrails against the local Docker Postgres:
 docker compose up -d postgres
 cd web
 DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma migrate deploy
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run test -- tests/performance
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
+  bun run test -- tests/performance
 ```
 
 Current checks:

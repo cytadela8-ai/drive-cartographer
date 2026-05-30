@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const CSV_HEADER: [&str; 21] = [
     "schema_version",
@@ -24,7 +24,7 @@ pub const CSV_HEADER: [&str; 21] = [
     "metadata_json",
 ];
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CsvFileRow {
     pub schema_version: String,
     pub source_name: String,

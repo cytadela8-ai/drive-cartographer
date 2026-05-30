@@ -6,9 +6,11 @@ use crate::metadata::{FileMetadata, collect_metadata};
 use crate::paths::split_relative_path;
 use crate::progress::ScanProgress;
 use sha2::{Digest, Sha256};
-use std::fs::File;
+use std::fs::{File, remove_file};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone)]
@@ -33,13 +35,17 @@ pub fn run_scan(
 ) -> Result<ScanSummary, ScannerError> {
     validate_roots(&config.roots)?;
 
+    let scan_started_at = timestamp_now()?;
     let mut summary = enumerate_roots(&config.roots)?;
     let cache = HashCache::open(&config.cache_path)?;
-    let file = File::create(&options.output_path).map_err(|source| ScannerError::Io {
-        path: options.output_path.display().to_string(),
+    let partial_output_path = partial_output_path(&options.output_path);
+    let file = File::create(&partial_output_path).map_err(|source| ScannerError::Io {
+        path: partial_output_path.display().to_string(),
         source,
     })?;
-    let mut writer = csv::Writer::from_writer(file);
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(file);
     writer.write_record(CSV_HEADER)?;
 
     let mut execution = ScanExecution {
@@ -48,10 +54,19 @@ pub fn run_scan(
         cache: &cache,
         writer: &mut writer,
         summary: &mut summary,
+        scan_started_at,
     };
     execution.process_roots()?;
 
     writer.flush().map_err(ScannerError::CsvFlush)?;
+    drop(writer);
+
+    let scan_finished_at = timestamp_now()?;
+    finalize_csv_output(
+        &partial_output_path,
+        &options.output_path,
+        &scan_finished_at,
+    )?;
 
     if options.upload {
         crate::upload::upload_artifact(&options.output_path, config.server_url.as_deref())?;
@@ -98,6 +113,7 @@ struct ScanExecution<'a, W: std::io::Write> {
     cache: &'a HashCache,
     writer: &'a mut csv::Writer<W>,
     summary: &'a mut ScanSummary,
+    scan_started_at: String,
 }
 
 impl<W: std::io::Write> ScanExecution<'_, W> {
@@ -144,6 +160,7 @@ impl<W: std::io::Write> ScanExecution<'_, W> {
             absolute_path,
             relative_path,
             sha256,
+            scan_started_at: self.scan_started_at.clone(),
         });
 
         self.writer.serialize(row)?;
@@ -159,6 +176,7 @@ struct RowContext<'a> {
     absolute_path: String,
     relative_path: String,
     sha256: String,
+    scan_started_at: String,
 }
 
 fn build_csv_row(context: RowContext<'_>) -> CsvFileRow {
@@ -170,7 +188,7 @@ fn build_csv_row(context: RowContext<'_>) -> CsvFileRow {
         hostname: std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".to_string()),
         os: std::env::consts::OS.to_string(),
         scanner_version: env!("CARGO_PKG_VERSION").to_string(),
-        scan_started_at: String::new(),
+        scan_started_at: context.scan_started_at,
         scan_finished_at: String::new(),
         root_label: context.root.label.clone(),
         root_path_seen: context.root.path.to_string_lossy().to_string(),
@@ -187,6 +205,53 @@ fn build_csv_row(context: RowContext<'_>) -> CsvFileRow {
         exif_json: context.metadata.exif_json,
         metadata_json: context.metadata.metadata_json,
     }
+}
+
+fn finalize_csv_output(
+    partial_output_path: &Path,
+    output_path: &Path,
+    scan_finished_at: &str,
+) -> Result<(), ScannerError> {
+    let mut reader = csv::Reader::from_path(partial_output_path)?;
+    let file = File::create(output_path).map_err(|source| ScannerError::Io {
+        path: output_path.display().to_string(),
+        source,
+    })?;
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(file);
+    writer.write_record(CSV_HEADER)?;
+
+    for row in reader.deserialize() {
+        let mut row: CsvFileRow = row?;
+        row.scan_finished_at = scan_finished_at.to_string();
+        writer.serialize(row)?;
+    }
+
+    writer.flush().map_err(ScannerError::CsvFlush)?;
+    remove_file(partial_output_path).map_err(|source| ScannerError::Io {
+        path: partial_output_path.display().to_string(),
+        source,
+    })?;
+    Ok(())
+}
+
+fn partial_output_path(output_path: &Path) -> PathBuf {
+    let mut path = output_path.to_path_buf();
+    let suffix = format!(
+        "{}.partial.{}",
+        output_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("csv"),
+        std::process::id()
+    );
+    path.set_extension(suffix);
+    path
+}
+
+fn timestamp_now() -> Result<String, ScannerError> {
+    Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
 }
 
 struct HashContext<'a> {

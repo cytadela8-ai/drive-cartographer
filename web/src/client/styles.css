@@ -40,7 +40,8 @@ select {
 .nav-tab,
 .primary-action,
 .tree-row,
-.icon-button {
+.icon-button,
+.upload-control {
   align-items: center;
   border: 0;
   cursor: pointer;
@@ -190,10 +191,63 @@ select {
 }
 
 .primary-action,
-.icon-button {
+.icon-button,
+.upload-control {
   background: #f4c95d;
   border-radius: 6px;
   color: #17201b;
   font-weight: 800;
   padding: 8px 12px;
+}
+
+.upload-control {
+  gap: 8px;
+  position: relative;
+}
+
+.upload-control input {
+  cursor: pointer;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.import-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.import-row {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d8dfd4;
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.import-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.import-row strong,
+.import-row p {
+  overflow-wrap: anywhere;
+}
+
+.import-row span {
+  color: #38655c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.import-row p {
+  color: #8a3b29;
+  margin: 0;
 }

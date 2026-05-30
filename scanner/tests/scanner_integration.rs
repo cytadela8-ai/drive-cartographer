@@ -2,6 +2,7 @@ use drive_cartographer_scanner::config::{RootConfig, ScannerConfig};
 use drive_cartographer_scanner::csv_schema::{CSV_HEADER, CsvFileRow, MinimalFileRowInput};
 use drive_cartographer_scanner::paths::split_relative_path;
 use drive_cartographer_scanner::scanner::{ScanOptions, run_scan};
+use std::collections::HashMap;
 use std::fs;
 
 #[test]
@@ -92,4 +93,51 @@ fn scan_streams_csv_rows_for_files_in_configured_root() {
     assert_eq!(summary.files_written, 1);
     assert!(csv.contains("alpha.txt"));
     assert!(csv.contains("test-source"));
+}
+
+#[test]
+fn scan_csv_rows_include_importable_scan_timestamps() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let root = temp.path().join("root");
+    fs::create_dir(&root).expect("create root");
+    fs::write(root.join("alpha.txt"), b"alpha").expect("write alpha");
+
+    let output = temp.path().join("scan.csv");
+    let cache = temp.path().join("cache.sqlite");
+    let config = ScannerConfig {
+        source_name: Some("test-source".to_string()),
+        roots: vec![RootConfig {
+            label: "main".to_string(),
+            path: root,
+        }],
+        server_url: None,
+        cache_path: cache,
+        exclude_patterns: Vec::new(),
+    };
+
+    run_scan(
+        &config,
+        &ScanOptions {
+            output_path: output.clone(),
+            full_rehash: false,
+            upload: false,
+        },
+    )
+    .expect("scan succeeds");
+
+    let mut reader = csv::Reader::from_path(output).expect("open csv");
+    let row = reader
+        .deserialize::<HashMap<String, String>>()
+        .next()
+        .expect("one row")
+        .expect("valid row");
+
+    assert_importable_timestamp(row.get("scan_started_at").expect("started timestamp"));
+    assert_importable_timestamp(row.get("scan_finished_at").expect("finished timestamp"));
+}
+
+fn assert_importable_timestamp(value: &str) {
+    assert!(!value.is_empty());
+    assert!(value.contains('T'));
+    assert!(value.ends_with('Z'));
 }
