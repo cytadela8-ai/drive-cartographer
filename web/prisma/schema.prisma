@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ArtifactStatus {
+  SAVED
+  IMPORTING
+  IMPORTED
+  FAILED
+}
+
+enum ImportJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ScanImportStatus {
+  IMPORTING
+  COMPLETED
+  FAILED
+}
+
+model Source {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  hostname  String
+  os        String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roots Root[]
+  scans Scan[]
+}
+
+model Root {
+  id                     String   @id @default(cuid())
+  sourceId               String
+  label                  String
+  absolutePath           String
+  filesystemMetadataJson Json     @default("{}")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  source        Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  scanRoots     ScanRoot[]
+  fileLocations FileLocation[]
+
+  @@unique([sourceId, label])
+}
+
+model ScanArtifact {
+  id               String         @id @default(cuid())
+  storagePath      String         @unique
+  originalFilename String
+  sizeBytes        BigInt
+  sha256           String         @unique
+  submissionMethod String
+  status           ArtifactStatus @default(SAVED)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  importJobs ImportJob[]
+  scans      Scan[]
+}
+
+model ImportJob {
+  id          String          @id @default(cuid())
+  artifactId  String
+  status      ImportJobStatus @default(PENDING)
+  attempts    Int             @default(0)
+  lastError   String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  artifact ScanArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([artifactId])
+  @@index([status, createdAt])
+}
+
+model Scan {
+  id              String           @id @default(cuid())
+  sourceId        String
+  artifactId      String
+  scannerVersion  String
+  startedAt       DateTime
+  finishedAt      DateTime
+  importStatus    ScanImportStatus @default(IMPORTING)
+  fileCount       Int              @default(0)
+  uniqueHashCount Int              @default(0)
+  errorCount      Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  source        Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  artifact      ScanArtifact   @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  scanRoots     ScanRoot[]
+  fileLocations FileLocation[]
+
+  @@index([sourceId, createdAt])
+  @@index([artifactId])
+}
+
+model ScanRoot {
+  scanId       String
+  rootId       String
+  rootPathSeen String
+  fileCount    Int    @default(0)
+  errorCount   Int    @default(0)
+  status       String @default("COMPLETED")
+
+  scan Scan  @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  root Root @relation(fields: [rootId], references: [id], onDelete: Cascade)
+
+  @@id([scanId, rootId])
+  @@index([rootId])
+}
+
+model FileHash {
+  id          String   @id @default(cuid())
+  sha256      String   @unique
+  sizeBytes   BigInt
+  mimeType    String
+  exifJson    Json     @default("{}")
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  fileLocations FileLocation[]
+}
+
+model FileLocation {
+  id                       String   @id @default(cuid())
+  scanId                   String
+  rootId                   String
+  hashId                   String
+  absolutePath             String
+  relativePath             String
+  parentRelativePath       String
+  basename                 String
+  createdAtFs              DateTime?
+  modifiedAtFs             DateTime
+  ownershipPermissionsJson Json     @default("{}")
+  metadataJson             Json     @default("{}")
+  createdAt                DateTime @default(now())
+
+  scan Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  root Root     @relation(fields: [rootId], references: [id], onDelete: Cascade)
+  hash FileHash @relation(fields: [hashId], references: [id], onDelete: Restrict)
+
+  @@unique([scanId, rootId, relativePath])
+  @@index([scanId, rootId, parentRelativePath])
+  @@index([hashId])
+  @@index([rootId, relativePath, scanId])
+}
