@@ -12,6 +12,13 @@ duplicates, and previous-scan context.
 
 ## Development
 
+Install Bun through asdf:
+
+```bash
+asdf plugin add bun https://github.com/cometkim/asdf-bun.git
+asdf install
+```
+
 Start PostgreSQL:
 
 ```bash
@@ -22,9 +29,9 @@ Install web dependencies and prepare the database:
 
 ```bash
 cd web
-npm install
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer npx prisma generate
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer npx prisma migrate deploy
+bun install
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma generate
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma migrate deploy
 ```
 
 Run the scanner against the example config:
@@ -42,13 +49,8 @@ Run checks:
 cargo test --manifest-path scanner/Cargo.toml
 cargo clippy --manifest-path scanner/Cargo.toml --all-targets -- -D warnings
 cd web
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer npm test
-npm run typecheck
-npm audit --audit-level=moderate
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run test
+bun run typecheck
 ```
-
-The web package is Bun-targeted through `packageManager`, but this development
-environment does not have Bun installed. Current verification uses Node 22 and
-npm-compatible scripts.
 
 Implementation details are tracked in `DEV.md`.

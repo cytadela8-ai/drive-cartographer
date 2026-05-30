@@ -2,8 +2,6 @@
 
 Remaining gaps before Drive Cartographer is a complete usable MVP:
 
-- Install and verify with Bun. Current verification used Node/npm because Bun is
-  not installed in this environment.
 - Add the HTTP route layer for the web service:
   - artifact upload endpoint
   - import job listing and retry endpoints

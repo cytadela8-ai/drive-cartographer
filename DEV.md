@@ -56,8 +56,8 @@ Run the guardrails against the local Docker Postgres:
 ```bash
 docker compose up -d postgres
 cd web
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer npx prisma migrate deploy
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer npm test -- tests/performance
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma migrate deploy
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run test -- tests/performance
 ```
 
 Current checks:
