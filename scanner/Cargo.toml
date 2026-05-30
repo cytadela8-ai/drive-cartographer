@@ -1,0 +1,18 @@
+[package]
+name = "drive-cartographer-scanner"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "drive_cartographer_scanner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "drive-cartographer-scan"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+csv = "1.4.0"
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
