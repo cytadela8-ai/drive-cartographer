@@ -2,7 +2,7 @@ use crate::cache::{CacheLookup, HashCache};
 use crate::config::{RootConfig, ScannerConfig};
 use crate::csv_schema::{CSV_HEADER, CsvFileRow};
 use crate::errors::ScannerError;
-use crate::metadata::{FileMetadata, collect_metadata};
+use crate::metadata::{FileMetadata, MetadataCollector};
 use crate::paths::split_relative_path;
 use crate::progress::ScanProgress;
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -40,6 +40,7 @@ pub fn run_scan(
     let scan_started_at = timestamp_now()?;
     let mut summary = enumerate_roots(&config.roots, &excludes)?;
     let cache = HashCache::open(&config.cache_path)?;
+    let metadata_collector = MetadataCollector::new()?;
     let partial_output_path = partial_output_path(&options.output_path);
     let file = File::create(&partial_output_path).map_err(|source| ScannerError::Io {
         path: partial_output_path.display().to_string(),
@@ -54,6 +55,7 @@ pub fn run_scan(
         config,
         options,
         cache: &cache,
+        metadata_collector: &metadata_collector,
         writer: &mut writer,
         summary: &mut summary,
         scan_started_at,
@@ -114,6 +116,7 @@ struct ScanExecution<'a, W: std::io::Write> {
     config: &'a ScannerConfig,
     options: &'a ScanOptions,
     cache: &'a HashCache,
+    metadata_collector: &'a MetadataCollector,
     writer: &'a mut csv::Writer<W>,
     summary: &'a mut ScanSummary,
     scan_started_at: String,
@@ -142,7 +145,7 @@ impl<W: std::io::Write> ScanExecution<'_, W> {
 
     fn process_file(&mut self, root: &RootConfig, path: &Path) -> Result<(), ScannerError> {
         let source_name = self.config.effective_source_name();
-        let metadata = collect_metadata(path)?;
+        let metadata = self.metadata_collector.collect(path)?;
         let absolute_path = path.to_string_lossy().to_string();
         let relative_path = relative_path(&root.path, path)?;
         let sha256 = hash_with_cache(
@@ -325,6 +328,7 @@ fn hash_with_cache(
         source_name: context.source_name,
         root_label: context.root_label,
         absolute_path: context.absolute_path,
+        platform_file_id: context.metadata.platform_file_id.as_deref(),
         size_bytes: context.metadata.size_bytes,
         modified_at_fs: &context.metadata.modified_at_fs,
     };

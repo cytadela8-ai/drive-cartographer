@@ -30,7 +30,15 @@ a buffered writer. It finalizes scan completion timestamps through a second CSV
 file pass, so it does not retain the full file list or all CSV rows in memory.
 
 Hashing uses a fixed 64 KiB read buffer. The local SQLite cache stores file hash
-results keyed by source, root, absolute path, size, and modification timestamp.
+results keyed by source, root, absolute path, size, modification timestamp, and
+platform file identity where the OS exposes one. On Unix, the scanner uses the
+device and inode pair. The identity key lets moved files reuse cached hashes and
+prevents a replaced file at the same path from reusing a stale hash.
+
+MIME detection uses the system `libmagic` library through the Rust `magic`
+binding. The scanner creates one libmagic cookie per scan and reuses it for
+each file metadata lookup. Linux development environments need `libmagic-dev`
+installed so the scanner can link against libmagic.
 
 `exclude_patterns` are glob patterns matched against each root-relative path.
 They are applied during both the enumeration pass and the processing pass, so

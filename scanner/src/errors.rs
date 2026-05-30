@@ -41,6 +41,9 @@ pub enum ScannerError {
     #[error("failed to format timestamp: {0}")]
     TimeFormat(#[from] time::error::Format),
 
+    #[error("failed to detect MIME type for {path}: {message}")]
+    Mime { path: String, message: String },
+
     #[error("root path does not exist or is not a directory: {path}")]
     InvalidRoot { path: String },
 

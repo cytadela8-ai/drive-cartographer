@@ -12,6 +12,12 @@ duplicates, and previous-scan context.
 
 ## Development
 
+Install scanner system dependencies:
+
+```bash
+sudo apt-get install libmagic-dev
+```
+
 Install Bun through asdf:
 
 ```bash

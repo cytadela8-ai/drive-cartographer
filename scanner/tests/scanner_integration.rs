@@ -1,5 +1,7 @@
+use drive_cartographer_scanner::cache::{CacheLookup, HashCache};
 use drive_cartographer_scanner::config::{RootConfig, ScannerConfig};
 use drive_cartographer_scanner::csv_schema::{CSV_HEADER, CsvFileRow, MinimalFileRowInput};
+use drive_cartographer_scanner::metadata::collect_metadata;
 use drive_cartographer_scanner::paths::split_relative_path;
 use drive_cartographer_scanner::scanner::{ScanOptions, run_scan};
 use drive_cartographer_scanner::upload::upload_artifact;
@@ -63,6 +65,17 @@ fn relative_path_split_handles_nested_files() {
 
     assert_eq!(parts.parent_relative_path, "photos/2024");
     assert_eq!(parts.basename, "image.jpg");
+}
+
+#[test]
+fn metadata_uses_libmagic_for_mime_detection() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let path = temp.path().join("alpha.txt");
+    fs::write(&path, b"plain text\n").expect("write text file");
+
+    let metadata = collect_metadata(&path).expect("collect metadata");
+
+    assert_eq!(metadata.mime_type, "text/plain");
 }
 
 #[test]
@@ -181,6 +194,61 @@ fn scan_csv_rows_include_importable_scan_timestamps() {
 
     assert_importable_timestamp(row.get("scan_started_at").expect("started timestamp"));
     assert_importable_timestamp(row.get("scan_finished_at").expect("finished timestamp"));
+}
+
+#[test]
+fn hash_cache_uses_platform_identity_when_file_path_changes() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let cache = HashCache::open(&temp.path().join("cache.sqlite")).expect("open cache");
+    let original = CacheLookup {
+        source_name: "source-a",
+        root_label: "main",
+        absolute_path: "/data/root/a.txt",
+        platform_file_id: Some("unix:1:99"),
+        size_bytes: 5,
+        modified_at_fs: "2026-05-30T00:00:00Z",
+    };
+    let moved = CacheLookup {
+        source_name: "source-a",
+        root_label: "main",
+        absolute_path: "/data/root/moved/a.txt",
+        platform_file_id: Some("unix:1:99"),
+        size_bytes: 5,
+        modified_at_fs: "2026-05-30T00:00:00Z",
+    };
+
+    cache.put(&original, "abc123").expect("store cache entry");
+
+    assert_eq!(
+        cache.get(&moved).expect("read moved entry"),
+        Some("abc123".to_string())
+    );
+}
+
+#[test]
+fn hash_cache_rejects_same_path_when_platform_identity_changes() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let cache = HashCache::open(&temp.path().join("cache.sqlite")).expect("open cache");
+    let original = CacheLookup {
+        source_name: "source-a",
+        root_label: "main",
+        absolute_path: "/data/root/a.txt",
+        platform_file_id: Some("unix:1:99"),
+        size_bytes: 5,
+        modified_at_fs: "2026-05-30T00:00:00Z",
+    };
+    let replaced = CacheLookup {
+        source_name: "source-a",
+        root_label: "main",
+        absolute_path: "/data/root/a.txt",
+        platform_file_id: Some("unix:1:100"),
+        size_bytes: 5,
+        modified_at_fs: "2026-05-30T00:00:00Z",
+    };
+
+    cache.put(&original, "abc123").expect("store cache entry");
+
+    assert_eq!(cache.get(&replaced).expect("read replaced entry"), None);
 }
 
 #[test]
