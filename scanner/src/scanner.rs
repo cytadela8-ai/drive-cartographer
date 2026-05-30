@@ -5,6 +5,7 @@ use crate::errors::ScannerError;
 use crate::metadata::{FileMetadata, collect_metadata};
 use crate::paths::split_relative_path;
 use crate::progress::ScanProgress;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use sha2::{Digest, Sha256};
 use std::fs::{File, remove_file};
 use std::io::{BufReader, Read};
@@ -35,8 +36,9 @@ pub fn run_scan(
 ) -> Result<ScanSummary, ScannerError> {
     validate_roots(&config.roots)?;
 
+    let excludes = Excludes::from_patterns(&config.exclude_patterns)?;
     let scan_started_at = timestamp_now()?;
-    let mut summary = enumerate_roots(&config.roots)?;
+    let mut summary = enumerate_roots(&config.roots, &excludes)?;
     let cache = HashCache::open(&config.cache_path)?;
     let partial_output_path = partial_output_path(&options.output_path);
     let file = File::create(&partial_output_path).map_err(|source| ScannerError::Io {
@@ -55,6 +57,7 @@ pub fn run_scan(
         writer: &mut writer,
         summary: &mut summary,
         scan_started_at,
+        excludes: &excludes,
     };
     execution.process_roots()?;
 
@@ -87,11 +90,11 @@ fn validate_roots(roots: &[RootConfig]) -> Result<(), ScannerError> {
     Ok(())
 }
 
-fn enumerate_roots(roots: &[RootConfig]) -> Result<ScanSummary, ScannerError> {
+fn enumerate_roots(roots: &[RootConfig], excludes: &Excludes) -> Result<ScanSummary, ScannerError> {
     let mut progress = ScanProgress::new();
 
     for root in roots {
-        for entry in WalkDir::new(&root.path) {
+        for entry in walk_entries(root, excludes) {
             let entry = entry?;
             if entry.file_type().is_file() {
                 let size_bytes = entry.metadata()?.len();
@@ -114,6 +117,7 @@ struct ScanExecution<'a, W: std::io::Write> {
     writer: &'a mut csv::Writer<W>,
     summary: &'a mut ScanSummary,
     scan_started_at: String,
+    excludes: &'a Excludes,
 }
 
 impl<W: std::io::Write> ScanExecution<'_, W> {
@@ -126,7 +130,7 @@ impl<W: std::io::Write> ScanExecution<'_, W> {
     }
 
     fn process_root(&mut self, root: &RootConfig) -> Result<(), ScannerError> {
-        for entry in WalkDir::new(&root.path) {
+        for entry in walk_entries(root, self.excludes) {
             let entry = entry?;
             if entry.file_type().is_file() {
                 self.process_file(root, entry.path())?;
@@ -252,6 +256,55 @@ fn partial_output_path(output_path: &Path) -> PathBuf {
 
 fn timestamp_now() -> Result<String, ScannerError> {
     Ok(OffsetDateTime::now_utc().format(&Rfc3339)?)
+}
+
+struct Excludes {
+    patterns: GlobSet,
+}
+
+impl Excludes {
+    fn from_patterns(patterns: &[String]) -> Result<Self, ScannerError> {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            let glob = Glob::new(pattern).map_err(|source| ScannerError::ExcludePattern {
+                pattern: pattern.clone(),
+                source,
+            })?;
+            builder.add(glob);
+        }
+        let patterns = builder
+            .build()
+            .map_err(|source| ScannerError::ExcludePattern {
+                pattern: patterns.join(", "),
+                source,
+            })?;
+
+        Ok(Self { patterns })
+    }
+
+    fn matches(&self, root: &Path, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        if relative.as_os_str().is_empty() {
+            return false;
+        }
+
+        self.patterns.is_match(normalized_path(relative))
+    }
+}
+
+fn walk_entries<'a>(
+    root: &'a RootConfig,
+    excludes: &'a Excludes,
+) -> impl Iterator<Item = walkdir::Result<walkdir::DirEntry>> + 'a {
+    WalkDir::new(&root.path)
+        .into_iter()
+        .filter_entry(move |entry| !excludes.matches(&root.path, entry.path()))
+}
+
+fn normalized_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 struct HashContext<'a> {

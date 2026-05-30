@@ -43,6 +43,23 @@ cargo run --manifest-path scanner/Cargo.toml -- \
   --output /tmp/drive-cartographer-example.csv
 ```
 
+Scanner config files are TOML:
+
+```toml
+source_name = "laptop-a"
+cache_path = "data/scanner-cache.sqlite"
+server_url = "http://localhost:3000"
+exclude_patterns = ["*.tmp", ".git/**"]
+
+[[roots]]
+label = "photos"
+path = "/Volumes/Photos"
+```
+
+Use `--upload` to submit the generated CSV to the configured server after a
+scan completes. The scanner sends the CSV as multipart field `artifact` to
+`/api/artifacts/upload`.
+
 Run the API server:
 
 ```bash
@@ -55,6 +72,13 @@ bun run server
 The API exposes CSV artifact upload, import job retry/listing, source/root/scan
 listing, explorer children, duplicate counts, and hash location endpoints under
 `/api`.
+
+Run the import worker:
+
+```bash
+cd web
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run worker
+```
 
 Run checks:
 

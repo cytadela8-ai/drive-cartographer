@@ -17,7 +17,7 @@ export { createFetchHandler } from "./app";
 export { loadConfig } from "./config";
 export { createPrismaClient } from "./db";
 export { importArtifact } from "./importer";
-export { runNextImportJob } from "./worker";
+export { claimNextImportJob, runImportWorker, runNextImportJob } from "./worker";
 
 if ((import.meta as ImportMeta & { main?: boolean }).main === true) {
   if (bunRuntime === undefined) {

@@ -9,19 +9,24 @@ export type ImportResult = {
   uniqueHashCount: number;
 };
 
+export type ImportArtifactOptions = {
+  claimedJobId?: string;
+};
+
 export async function importArtifact(
   prisma: PrismaClient,
   artifactId: string,
+  options: ImportArtifactOptions = {},
 ): Promise<ImportResult> {
   const artifact = await prisma.scanArtifact.findUniqueOrThrow({
     where: {
       id: artifactId,
     },
   });
-  await rejectDuplicateCompletedScan(prisma, artifactId);
+  const jobId = options.claimedJobId ?? await startPendingJob(prisma, artifactId);
 
-  const jobId = await markJobRunning(prisma, artifactId);
   try {
+    await rejectDuplicateCompletedScan(prisma, artifactId);
     const rows = readScanCsv(artifact.storagePath);
     const result = await importRows(prisma, artifactId, rows);
     await markJobCompleted(prisma, jobId);
@@ -49,6 +54,11 @@ export async function importArtifact(
   }
 }
 
+async function startPendingJob(prisma: PrismaClient, artifactId: string): Promise<string> {
+  await rejectDuplicateCompletedScan(prisma, artifactId);
+  return markJobRunning(prisma, artifactId);
+}
+
 async function rejectDuplicateCompletedScan(
   prisma: PrismaClient,
   artifactId: string,
@@ -73,27 +83,20 @@ async function importRows(
   return prisma.$transaction(async (transaction) => {
     const first = rows[0]!;
     const source = await upsertSource(transaction, first);
-    const root = await upsertRoot(transaction, source.id, first);
     const scan = await createScan(transaction, artifactId, source.id, first);
-
-    await transaction.scanRoot.create({
-      data: {
-        scanId: scan.id,
-        rootId: root.id,
-        rootPathSeen: first.root_path_seen,
-        fileCount: rows.length,
-      },
-    });
+    const rootsByLabel = new Map<string, ImportedRoot>();
 
     const uniqueHashes = new Set<string>();
     for (const row of rows) {
+      const root = await rootForRow(transaction, source.id, row, rootsByLabel);
       uniqueHashes.add(row.sha256);
       const fileHash = await upsertFileHash(transaction, row);
       await transaction.fileLocation.create({
-        data: buildFileLocation(row, scan.id, root.id, fileHash.id),
+        data: buildFileLocation(row, scan.id, root.rootId, fileHash.id),
       });
     }
 
+    await createScanRoots(transaction, scan.id, rootsByLabel);
     await transaction.scan.update({
       where: {
         id: scan.id,
@@ -114,6 +117,12 @@ async function importRows(
 }
 
 type TransactionClient = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
+
+type ImportedRoot = {
+  rootId: string;
+  rootPathSeen: string;
+  fileCount: number;
+};
 
 async function upsertSource(transaction: TransactionClient, row: ScanCsvRow) {
   return transaction.source.upsert({
@@ -153,6 +162,45 @@ async function upsertRoot(
       absolutePath: row.root_path_seen,
     },
   });
+}
+
+async function rootForRow(
+  transaction: TransactionClient,
+  sourceId: string,
+  row: ScanCsvRow,
+  rootsByLabel: Map<string, ImportedRoot>,
+): Promise<ImportedRoot> {
+  const existing = rootsByLabel.get(row.root_label);
+  if (existing !== undefined) {
+    existing.fileCount += 1;
+    return existing;
+  }
+
+  const root = await upsertRoot(transaction, sourceId, row);
+  const imported = {
+    fileCount: 1,
+    rootId: root.id,
+    rootPathSeen: row.root_path_seen,
+  };
+  rootsByLabel.set(row.root_label, imported);
+  return imported;
+}
+
+async function createScanRoots(
+  transaction: TransactionClient,
+  scanId: string,
+  rootsByLabel: Map<string, ImportedRoot>,
+): Promise<void> {
+  for (const root of rootsByLabel.values()) {
+    await transaction.scanRoot.create({
+      data: {
+        fileCount: root.fileCount,
+        rootId: root.rootId,
+        rootPathSeen: root.rootPathSeen,
+        scanId,
+      },
+    });
+  }
 }
 
 async function createScan(

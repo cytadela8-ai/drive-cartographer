@@ -1,5 +1,7 @@
 source_name = "example-source"
 cache_path = "scanner/fixtures/example-cache.sqlite"
+server_url = "http://localhost:3000"
+exclude_patterns = ["*.tmp", ".git/**"]
 
 [[roots]]
 label = "fixtures"

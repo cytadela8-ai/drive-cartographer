@@ -31,6 +31,13 @@ pub enum ScannerError {
         source: toml::de::Error,
     },
 
+    #[error("invalid exclude pattern {pattern}: {source}")]
+    ExcludePattern {
+        pattern: String,
+        #[source]
+        source: globset::Error,
+    },
+
     #[error("failed to format timestamp: {0}")]
     TimeFormat(#[from] time::error::Format),
 
@@ -39,4 +46,14 @@ pub enum ScannerError {
 
     #[error("upload is not configured for artifact: {path}")]
     UploadNotConfigured { path: String },
+
+    #[error("failed to upload artifact {path}: {source}")]
+    Upload {
+        path: String,
+        #[source]
+        source: Box<ureq::Error>,
+    },
+
+    #[error("artifact upload failed with HTTP status {status}")]
+    UploadStatus { status: u16 },
 }

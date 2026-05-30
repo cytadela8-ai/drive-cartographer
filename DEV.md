@@ -10,6 +10,7 @@ inspection.
 ## Modules
 
 - `scanner/src/scanner.rs`: scan orchestration.
+- `scanner/src/upload.rs`: multipart CSV artifact upload.
 - `scanner/src/csv_schema.rs`: CSV header and row encoding.
 - `scanner/src/cache.rs`: SQLite hash cache.
 - `scanner/src/config.rs`: TOML scanner config loading.
@@ -17,6 +18,7 @@ inspection.
 - `web/src/server/app.ts`: fetch-handler API routes.
 - `web/src/server/importer.ts`: CSV validation and database import.
 - `web/src/server/explorer.ts`: directory, duplicate, and history queries.
+- `web/src/server/worker.ts`: import job claiming and worker loop.
 - `web/src/client/ImportsView.tsx`: CSV upload and import job actions.
 - `web/src/client/ExplorerView.tsx`: virtualized file explorer.
 
@@ -29,6 +31,13 @@ file pass, so it does not retain the full file list or all CSV rows in memory.
 
 Hashing uses a fixed 64 KiB read buffer. The local SQLite cache stores file hash
 results keyed by source, root, absolute path, size, and modification timestamp.
+
+`exclude_patterns` are glob patterns matched against each root-relative path.
+They are applied during both the enumeration pass and the processing pass, so
+excluded directories are not descended into.
+
+When `--upload` is enabled, `scanner/src/upload.rs` posts the generated CSV as
+multipart field `artifact` to `{server_url}/api/artifacts/upload`.
 
 ## Database
 
@@ -61,6 +70,16 @@ handler used by Bun and by server tests. The current routes are:
 Upload stores the original CSV artifact in `ARTIFACT_ARCHIVE_DIR` before
 creating a pending import job. Retry resets the failed job in place and returns
 the artifact to `SAVED` status.
+
+## Import Worker
+
+`web/src/server/worker.ts` atomically claims pending jobs with a Postgres
+`UPDATE ... FOR UPDATE SKIP LOCKED` query. `bun run worker` starts a continuous
+poll loop. Each claimed job is moved to `RUNNING`, has its attempt count
+incremented once, and is then passed to the importer.
+
+The importer supports multi-root CSV artifacts by upserting roots per row and
+creating one `ScanRoot` record per root observed in the artifact.
 
 ## Web Tests
 
