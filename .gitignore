@@ -1,1 +1,7 @@
 .superpowers/
+.env
+data/
+node_modules/
+target/
+dist/
+coverage/
