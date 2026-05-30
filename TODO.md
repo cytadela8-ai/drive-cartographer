@@ -7,7 +7,5 @@ Remaining gaps before Drive Cartographer is a complete usable MVP:
   enumeration, processing, finalization, and upload.
 - Complete ownership and permission metadata collection for Windows and macOS,
   including ACL summaries where practical.
-- Add end-to-end smoke coverage for scanner CSV output -> admin/server import ->
-  explorer query.
 - Configure a Bun-compatible dependency security scan. `bun pm scan` currently
   requires an explicit scanner package configuration.

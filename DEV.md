@@ -94,6 +94,10 @@ creating one `ScanRoot` record per root observed in the artifact.
 Database-backed Vitest files run sequentially because they share the local
 Postgres database and clean tables between tests.
 
+`web/tests/server/smoke.test.ts` shells out to the Rust scanner, uploads the
+generated CSV through the server API, imports the queued job through the worker
+claim path, and verifies explorer duplicate queries against the imported data.
+
 ## Performance Guardrails
 
 The web test suite includes deterministic performance fixtures in
