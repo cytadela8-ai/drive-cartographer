@@ -4,11 +4,13 @@ Drive Cartographer scans file trees, archives scan CSVs, imports them into
 PostgreSQL, and provides a local web UI for exploring file locations,
 duplicates, and previous-scan context.
 
-## MVP Components
+## Components
 
-- `scanner/`: Rust CLI that scans configured roots and writes CSV artifacts.
-- `web/`: Bun TypeScript service, worker, and frontend.
-- `fixtures/`: small test scan artifacts.
+- [`scanner/`](scanner/README.md): Rust CLI that enumerates roots, hashes files,
+  writes CSV artifacts, and can upload them.
+- [`web/`](web/README.md): Bun API server, import worker, PostgreSQL-backed
+  importer, and React frontend.
+- `fixtures/`: small test artifacts used by scanner and server tests.
 
 ## Development
 
@@ -31,13 +33,14 @@ Start PostgreSQL:
 docker compose up -d postgres
 ```
 
-Install web dependencies and prepare the database:
+Prepare the web environment:
 
 ```bash
 cd web
 bun install
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma generate
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bunx prisma migrate deploy
+cp .env.example .env
+bun run prisma:generate
+bunx prisma migrate deploy
 ```
 
 Run the scanner against the example config:
@@ -49,54 +52,26 @@ cargo run --manifest-path scanner/Cargo.toml -- \
   --output /tmp/drive-cartographer-example.csv
 ```
 
-Scanner config files are TOML:
+Scanner usage, config details, caching behavior, and upload modes are documented
+in [`scanner/README.md`](scanner/README.md).
 
-```toml
-source_name = "laptop-a"
-cache_path = "data/scanner-cache.sqlite"
-server_url = "http://localhost:3000"
-exclude_patterns = ["*.tmp", ".git/**"]
-
-[[roots]]
-label = "photos"
-path = "/Volumes/Photos"
-```
-
-Use `--upload` to submit the generated CSV to the configured server after a
-scan completes. The scanner sends the CSV as multipart field `artifact` to
-`/api/artifacts/upload`.
-
-The scanner displays terminal progress for enumeration, processing,
-finalization, and upload. It detects MIME types with libmagic and stores
-normalized EXIF JSON for common image fields when EXIF data is present.
-
-Run the development web app:
+Run the development web app and worker:
 
 ```bash
 cd web
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
-ARTIFACT_ARCHIVE_DIR=./data/artifacts \
 bun run dev
+bun run worker
 ```
 
 `bun run dev` starts the Bun API server and Vite dev server together. Vite
 serves the frontend and proxies `/api/*` to the Bun server on `WEB_PORT`
 (`3000` by default). Open the Vite URL printed in the terminal.
 
-Run the import worker:
-
-```bash
-cd web
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run worker
-```
-
 For a production build:
 
 ```bash
 cd web
 bun run build
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
-ARTIFACT_ARCHIVE_DIR=./data/artifacts \
 bun run start
 ```
 
@@ -114,9 +89,12 @@ Run checks:
 cargo test --manifest-path scanner/Cargo.toml
 cargo clippy --manifest-path scanner/Cargo.toml --all-targets -- -D warnings
 cd web
-DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run test
+bun run test
 bun run typecheck
 bun run security:scan
+bun run build
 ```
 
-Implementation details are tracked in `DEV.md`.
+Implementation details are tracked in [`DEV.md`](DEV.md). Component-specific
+setup and runtime instructions live in [`scanner/README.md`](scanner/README.md)
+and [`web/README.md`](web/README.md).

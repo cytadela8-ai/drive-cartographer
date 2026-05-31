@@ -9,6 +9,7 @@ inspection.
 
 ## Modules
 
+- `scanner/README.md`: scanner-specific setup, config, commands, and usage.
 - `scanner/src/scanner.rs`: scan orchestration.
 - `scanner/src/upload.rs`: multipart CSV artifact upload.
 - `scanner/src/csv_schema.rs`: CSV header and row encoding.
@@ -16,6 +17,7 @@ inspection.
 - `scanner/src/config.rs`: TOML scanner config loading.
 - `scanner/src/metadata.rs`: filesystem metadata normalization.
 - `scanner/src/progress.rs`: scanner progress event API and terminal renderer.
+- `web/README.md`: web service setup, env, runtime commands, and import flow.
 - `web/src/server/app.ts`: fetch-handler API routes.
 - `web/src/server/staticFiles.ts`: production Vite asset serving and SPA fallback.
 - `web/src/server/webApp.ts`: API/static request composition.
@@ -116,6 +118,10 @@ without file extensions fall back to `index.html`; missing asset paths return
 `UPDATE ... FOR UPDATE SKIP LOCKED` query. `bun run worker` starts a continuous
 poll loop. Each claimed job is moved to `RUNNING`, has its attempt count
 incremented once, and is then passed to the importer.
+
+`web/.env.example` documents the local environment expected by the server and
+worker. Development commands in the READMEs assume `web/.env` is populated from
+that example file.
 
 The importer supports multi-root CSV artifacts by upserting roots per row and
 creating one `ScanRoot` record per root observed in the artifact.
