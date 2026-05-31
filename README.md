@@ -70,18 +70,18 @@ The scanner displays terminal progress for enumeration, processing,
 finalization, and upload. It detects MIME types with libmagic and stores
 normalized EXIF JSON for common image fields when EXIF data is present.
 
-Run the API server:
+Run the development web app:
 
 ```bash
 cd web
 DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
 ARTIFACT_ARCHIVE_DIR=./data/artifacts \
-bun run server
+bun run dev
 ```
 
-The API exposes CSV artifact upload, import job retry/listing, source/root/scan
-listing, explorer children, duplicate counts, and hash location endpoints under
-`/api`.
+`bun run dev` starts the Bun API server and Vite dev server together. Vite
+serves the frontend and proxies `/api/*` to the Bun server on `WEB_PORT`
+(`3000` by default). Open the Vite URL printed in the terminal.
 
 Run the import worker:
 
@@ -89,6 +89,24 @@ Run the import worker:
 cd web
 DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer bun run worker
 ```
+
+For a production build:
+
+```bash
+cd web
+bun run build
+DATABASE_URL=postgresql://drive:drive@localhost:5432/drive_cartographer \
+ARTIFACT_ARCHIVE_DIR=./data/artifacts \
+bun run start
+```
+
+The Bun server serves `/api/*` from the API handler and serves the built Vite
+frontend from `web/dist` when `dist/index.html` exists. If `dist/` is missing,
+the server remains API-only.
+
+The API exposes CSV artifact upload, import job retry/listing, source/root/scan
+listing, explorer children, duplicate counts, and hash location endpoints under
+`/api`.
 
 Run checks:
 

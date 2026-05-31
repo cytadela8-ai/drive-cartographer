@@ -17,6 +17,8 @@ inspection.
 - `scanner/src/metadata.rs`: filesystem metadata normalization.
 - `scanner/src/progress.rs`: scanner progress event API and terminal renderer.
 - `web/src/server/app.ts`: fetch-handler API routes.
+- `web/src/server/staticFiles.ts`: production Vite asset serving and SPA fallback.
+- `web/src/server/webApp.ts`: API/static request composition.
 - `web/src/server/importer.ts`: CSV validation and database import.
 - `web/src/server/explorer.ts`: directory, duplicate, and history queries.
 - `web/src/server/worker.ts`: import job claiming and worker loop.
@@ -93,6 +95,20 @@ handler used by Bun and by server tests. The current routes are:
 Upload stores the original CSV artifact in `ARTIFACT_ARCHIVE_DIR` before
 creating a pending import job. Retry resets the failed job in place and returns
 the artifact to `SAVED` status.
+
+## Web Serving
+
+Development uses Vite as the browser-facing server. `web/vite.config.ts`
+proxies `/api/*` to the Bun server, defaulting to `http://localhost:3000`.
+`bun run dev` starts both processes and sets `VITE_API_TARGET` from `WEB_PORT`
+unless the caller overrides it.
+
+Production uses Vite's static build output. `bun run build` writes `web/dist`,
+and `bun run start` runs the Bun server. The server routes `/api/*` to the API
+handler first, then serves files from `dist/` when `dist/index.html` exists.
+Vite asset URLs under `dist/assets` get immutable cache headers. App routes
+without file extensions fall back to `index.html`; missing asset paths return
+`404` instead of the SPA shell.
 
 ## Import Worker
 

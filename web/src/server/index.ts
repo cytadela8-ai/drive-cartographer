@@ -1,6 +1,9 @@
+import { fileURLToPath } from "node:url";
+
 import { createFetchHandler } from "./app";
 import { loadConfig } from "./config";
 import { createPrismaClient } from "./db";
+import { createWebFetchHandler, productionStaticDir } from "./webApp";
 
 type BunRuntime = {
   serve: (options: {
@@ -30,7 +33,16 @@ if ((import.meta as ImportMeta & { main?: boolean }).main === true) {
     artifactArchiveDir: config.artifactArchiveDir,
     prisma,
   });
-  const server = bunRuntime.serve({ fetch, port: config.webPort });
+  const staticDir = await productionStaticDir(
+    fileURLToPath(new URL("../../dist", import.meta.url)),
+  );
+  const server = bunRuntime.serve({
+    fetch: createWebFetchHandler({
+      apiFetch: fetch,
+      staticDir,
+    }),
+    port: config.webPort,
+  });
 
-  console.log(`Drive Cartographer API listening on ${server.url.toString()}`);
+  console.log(`Drive Cartographer listening on ${server.url.toString()}`);
 }
